@@ -1,8 +1,6 @@
-# VastAI.NET
+# VastAI.NET [![.NET Build and Test](https://github.com/Alos-no/VastAI.NET/actions/workflows/CI.yml/badge.svg)](https://github.com/Alos-no/VastAI.NET/actions/workflows/CI.yml) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-27ae60)](https://github.com/Alos-no/VastAI.NET/blob/main/LICENSE.txt) [![NuGet (VastAI.NET)](https://img.shields.io/nuget/v/VastAI.NET?label=VastAI.NET&color=27ae60)](https://www.nuget.org/packages/VastAI.NET/)
 
 `VastAI.NET` is a typed .NET client for the Vast.ai REST API.
-
-It exists so the CLI and future browser host can share the same Vast provider code instead of shelling out to the `vastai` CLI.
 
 ## Install
 
@@ -75,7 +73,7 @@ search.Filters["inet_down_cost"] = new VastSearchFilter { LessThanOrEqualTo = 1.
 var offers = await client.SearchOffersAsync(search);
 ```
 
-`Order` accepts the Vast CLI shorthand used by this project: `dph_total` sorts ascending, `dlperf_usd-` sorts descending.
+`Order` accepts compact Vast-style sort expressions: `dph_total` sorts ascending, `dlperf_usd-` sorts descending.
 
 ### GetInstancesAsync
 

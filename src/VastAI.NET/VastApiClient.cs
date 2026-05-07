@@ -145,7 +145,7 @@ public sealed class VastApiClient(
     return body;
   }
 
-  /// <summary>Converts the trainer's Vast CLI-style order shorthand into the REST API's list-based order shape.</summary>
+  /// <summary>Converts a compact sort expression into Vast's REST API list-based order shape.</summary>
   private static IReadOnlyList<IReadOnlyList<string>> CreateOrder(string order)
   {
     var trimmedOrder = string.IsNullOrWhiteSpace(order) ? "dph_total" : order.Trim();

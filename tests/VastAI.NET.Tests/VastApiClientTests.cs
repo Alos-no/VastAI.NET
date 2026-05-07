@@ -53,7 +53,7 @@ public sealed class VastApiClientTests
     Assert.Equal(0.5, offers[0].InternetUpCostPerTb);
   }
 
-  /// <summary>Search converts the trainer's descending Vast CLI order shorthand to the REST API order-list shape.</summary>
+  /// <summary>Search converts a descending compact sort expression to the REST API order-list shape.</summary>
   [Fact]
   public async Task SearchOffersAsync_WithDescendingOrderSuffix_SendsRestOrderList()
   {

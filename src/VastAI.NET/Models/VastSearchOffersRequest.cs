@@ -9,12 +9,12 @@ public sealed class VastSearchOffersRequest
   public int Limit { get; set; } = 10;
 
   /// <summary>
-  ///   Sort expression using the Vast CLI shorthand kept by the trainer profiles.
+  ///   Compact sort expression accepted by this client.
   ///   A trailing <c>-</c> sorts descending, a trailing <c>+</c> sorts ascending, and no suffix sorts ascending.
   /// </summary>
   public string Order { get; set; } = "dph_total";
 
-  /// <summary>Vast instance type. The trainer uses on-demand rentals by default.</summary>
+  /// <summary>Vast instance type. Defaults to on-demand rentals.</summary>
   public string Type { get; set; } = "on-demand";
 
   /// <summary>Filter fields keyed by Vast offer property name.</summary>
