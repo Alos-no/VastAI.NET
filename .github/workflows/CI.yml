@@ -61,6 +61,11 @@ jobs:
         # Restore is required even with --no-build so the test runner can locate packages
         run: dotnet restore VastAI.NET.slnx
 
+      - name: Restore xUnit v3 test app permissions
+        # GitHub artifact downloads do not preserve executable bits. xUnit v3 test projects are
+        # launched as test executables by the VSTest adapter, so Linux runners need this restored.
+        run: find tests -path "*/bin/Debug/net10.0/*" -type f -name "*.Tests" -exec chmod +x {} \;
+
       - name: Run tests
         run: dotnet test VastAI.NET.slnx --no-build --verbosity normal --logger trx --results-directory ./test-results
 
