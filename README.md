@@ -84,7 +84,26 @@ var instances = await client.GetInstancesAsync();
 var active = instances.Where(instance => instance.IsActive).ToList();
 ```
 
-`VastInstance` includes normalized status, label, GPU name, hourly price, estimated age, estimated cost, and SSH target fields when Vast returns them.
+`VastInstance` includes normalized status, label, GPU name, hourly price, estimated age, estimated cost, SSH target fields, public IP, exposed port mappings, and `extra_env` values when Vast returns them.
+
+Use `extra_env` and exposed ports when reconnecting to software that was started by a Vast `onstart` command:
+
+```csharp
+if (instance.TryGetExtraEnvironmentValue("VAST_LFS_TOKEN", out var workerToken) &&
+    instance.TryGetPublicUriForContainerPort(8088, out var workerUri))
+{
+  Console.WriteLine(workerUri);
+}
+```
+
+The full raw Vast instance object is also available for newly introduced Vast fields that do not yet have first-class properties:
+
+```csharp
+if (instance.Raw.TryGetProperty("future_vast_field", out var value))
+{
+  Console.WriteLine(value?.ToJsonString());
+}
+```
 
 ### GetInstanceAsync
 

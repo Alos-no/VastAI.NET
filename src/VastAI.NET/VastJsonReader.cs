@@ -1,5 +1,6 @@
 namespace VastAI.NET;
 
+using System.Text.Json;
 using Models;
 using Serialization;
 
@@ -15,18 +16,47 @@ internal static class VastJsonReader
 
   /// <summary>Reads account instances from Vast's direct array or collection envelope responses.</summary>
   public static IReadOnlyList<VastInstance> ReadInstances(string json) =>
-    VastJson.DeserializeCollection<VastInstanceDto, VastInstanceEnvelope>(json, envelope => envelope.InstancesOrEmpty)
-            .Select(instance => instance.ToModel())
-            .Where(instance => !string.IsNullOrWhiteSpace(instance.Id))
-            .ToList();
+    ReadInstanceElements(json)
+      .Select(ReadInstanceElement)
+      .Where(instance => !string.IsNullOrWhiteSpace(instance.Id))
+      .ToList();
 
   /// <summary>Reads one instance from Vast's show-instance response.</summary>
   public static VastInstance ReadInstance(string json) =>
     ReadInstances(json).FirstOrDefault() ??
-    VastJson.Deserialize<VastInstanceDto>(json)?.ToModel() ??
+    VastJson.Deserialize<VastInstanceDto>(json)?.ToModel(VastRawJson.FromJson(json)) ??
     VastInstanceDto.Empty.ToModel();
 
   /// <summary>Reads the new instance id from Vast's create-instance response.</summary>
   public static string ReadNewContract(string json) =>
     VastJson.Deserialize<VastCreateInstanceResponse>(json)?.NewInstanceId ?? "";
+
+  /// <summary>Extracts instance objects from Vast's direct array and known collection wrappers.</summary>
+  private static IReadOnlyList<JsonElement> ReadInstanceElements(string json)
+  {
+    using var document = JsonDocument.Parse(json);
+    var       root     = document.RootElement;
+    if (root.ValueKind == JsonValueKind.Array)
+      return root.EnumerateArray().Select(element => element.Clone()).ToList();
+
+    foreach (var name in new[] { "instances", "results", "items", "data" })
+      if (root.TryGetProperty(name, out var child))
+      {
+        if (child.ValueKind == JsonValueKind.Array)
+          return child.EnumerateArray().Select(element => element.Clone()).ToList();
+
+        if (child.ValueKind == JsonValueKind.Object)
+          return [child.Clone()];
+      }
+
+    return root.ValueKind == JsonValueKind.Object ? [root.Clone()] : [];
+  }
+
+  /// <summary>Maps one raw Vast instance object into the public model while preserving its complete JSON object.</summary>
+  private static VastInstance ReadInstanceElement(JsonElement element)
+  {
+    var rawJson = element.GetRawText();
+    return VastJson.Deserialize<VastInstanceDto>(rawJson)?.ToModel(VastRawJson.FromJson(rawJson)) ??
+           VastInstanceDto.Empty.ToModel();
+  }
 }

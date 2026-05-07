@@ -129,6 +129,76 @@ public sealed class VastApiClientTests
     Assert.Equal(40123, instances[0].SshPort);
   }
 
+  /// <summary>Show instances preserves browser recovery metadata and the full raw instance object.</summary>
+  [Fact]
+  public async Task GetInstancesAsync_PreservesExtraEnvPortsPublicIpAndRawData()
+  {
+    var handler = new CaptureHandler("""
+                                     {
+                                       "instances": [
+                                         {
+                                           "id": 42,
+                                           "actual_status": "running",
+                                           "label": "vlt1-run123-demo",
+                                           "gpu_name": "RTX 4060 Ti",
+                                           "dph_total": 0.116,
+                                           "public_ipaddr": "203.0.113.10",
+                                           "extra_env": [
+                                             ["VAST_LFS_TOKEN", "worker-token"],
+                                             ["VAST_LFS_RUN_ID", "run123"]
+                                           ],
+                                           "ports": {
+                                             "8088/tcp": [
+                                               { "HostIp": "0.0.0.0", "HostPort": "18088" }
+                                             ]
+                                           },
+                                           "future_vast_field": { "nested": true }
+                                         }
+                                       ]
+                                     }
+                                     """);
+    var client = CreateClient(handler);
+
+    var instances = await client.GetInstancesAsync(TestContext.Current.CancellationToken);
+
+    var instance = Assert.Single(instances);
+    Assert.Equal("203.0.113.10", instance.PublicIpAddress);
+    Assert.Equal("worker-token", instance.ExtraEnvironment["VAST_LFS_TOKEN"]);
+    Assert.True(instance.TryGetExtraEnvironmentValue("VAST_LFS_RUN_ID", out var runId));
+    Assert.Equal("run123", runId);
+    Assert.True(instance.TryGetPublicUriForContainerPort(8088, out var workerUri));
+    Assert.Equal("http://203.0.113.10:18088/", workerUri.ToString());
+    Assert.True(instance.Raw.TryGetProperty("future_vast_field", out var futureField));
+    Assert.True(futureField?["nested"]?.GetValue<bool>());
+    Assert.True(instance.Raw.TryGetProperty("extra_env", out _));
+  }
+
+  /// <summary>Show instances accepts Vast port mappings when they arrive as an array of objects.</summary>
+  [Fact]
+  public async Task GetInstancesAsync_ParsesArrayPortMappings()
+  {
+    var handler = new CaptureHandler("""
+                                     {
+                                       "instances": [
+                                         {
+                                           "id": 42,
+                                           "actual_status": "running",
+                                           "public_ipaddr": "203.0.113.10",
+                                           "ports": [
+                                             { "container_port": 8088, "host_port": 18088, "protocol": "tcp", "host": "198.51.100.25" }
+                                           ]
+                                         }
+                                       ]
+                                     }
+                                     """);
+    var client = CreateClient(handler);
+
+    var instance = Assert.Single(await client.GetInstancesAsync(TestContext.Current.CancellationToken));
+
+    Assert.True(instance.TryGetPublicUriForContainerPort(8088, out var workerUri));
+    Assert.Equal("http://198.51.100.25:18088/", workerUri.ToString());
+  }
+
   /// <summary>Show instance accepts Vast's single-object instances wrapper returned by the live API.</summary>
   [Fact]
   public async Task GetInstanceAsync_ParsesSingleInstanceObjectWrapper()
