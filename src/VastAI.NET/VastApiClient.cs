@@ -123,7 +123,7 @@ public sealed class VastApiClient(
 
     var requestUri = new Uri(_options.ApiBaseUri, relativePath);
     var request    = new HttpRequestMessage(method, requestUri);
-    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey.Trim());
     if (body is not null)
       request.Content = JsonContent.Create(body, options: JsonOptions);
     return request;

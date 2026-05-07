@@ -188,7 +188,7 @@ public sealed class VastApiClientTests
   {
     var       handler    = new CaptureHandler("""{"instances":[]}""");
     using var httpClient = new HttpClient(handler);
-    var       client     = VastApiClient.Create("runtime-key", httpClient: httpClient);
+    var       client     = VastApiClient.Create(" runtime-key " + Environment.NewLine, httpClient: httpClient);
 
     await client.GetInstancesAsync(TestContext.Current.CancellationToken);
 
