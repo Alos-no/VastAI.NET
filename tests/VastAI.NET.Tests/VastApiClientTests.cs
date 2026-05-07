@@ -2,6 +2,7 @@ namespace VastAI.NET.Tests;
 
 using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Models;
@@ -238,6 +239,26 @@ public sealed class VastApiClientTests
     Assert.Contains("Vast API key is required", exception.Message);
   }
 
+  /// <summary>Failed Vast responses must not copy the configured bearer token into exceptions or logs.</summary>
+  [Fact]
+  public async Task GetInstancesAsync_WhenRequestFails_DoesNotLeakApiKeyInExceptionOrLogs()
+  {
+    const string apiKey = "live-secret-value-that-must-not-appear";
+    var handler = new SequenceHandler(
+      new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("""{"error":"unauthorized"}""") });
+    var logger = new CapturingLogger<VastApiClient>();
+    var client = new VastApiClient(
+      new HttpClient(handler),
+      Options.Create(new VastAIOptions { ApiKey = apiKey, ApiBaseUri = new Uri("https://console.vast.ai/") }),
+      logger);
+
+    var exception = await Assert.ThrowsAsync<Exceptions.VastAIOperationException>(() => client.GetInstancesAsync(
+                                                                                    TestContext.Current.CancellationToken));
+
+    Assert.DoesNotContain(apiKey, exception.ToString(), StringComparison.Ordinal);
+    Assert.DoesNotContain(apiKey, string.Join(Environment.NewLine, logger.Messages), StringComparison.Ordinal);
+  }
+
   /// <summary>Creates a client with a fake handler and deterministic options.</summary>
   private static VastApiClient CreateClient(HttpMessageHandler handler)
   {
@@ -282,6 +303,38 @@ public sealed class VastApiClientTests
       return Task.FromResult(_responses.Count == 0
         ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"success":true}""") }
         : _responses.Dequeue());
+    }
+  }
+
+  /// <summary>Captures rendered log messages without writing them to test output.</summary>
+  private sealed class CapturingLogger<T> : ILogger<T>
+  {
+    public List<string> Messages { get; } = [];
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+      LogLevel                        logLevel,
+      EventId                         eventId,
+      TState                          state,
+      Exception?                      exception,
+      Func<TState, Exception?, string> formatter)
+    {
+      Messages.Add(formatter(state, exception));
+      if (exception is not null)
+        Messages.Add(exception.ToString());
+    }
+  }
+
+  /// <summary>Reusable no-op logging scope.</summary>
+  private sealed class NullScope : IDisposable
+  {
+    public static readonly NullScope Instance = new();
+
+    public void Dispose()
+    {
     }
   }
 }

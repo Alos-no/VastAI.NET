@@ -117,12 +117,14 @@ jobs:
           user: ${{ secrets.NUGET_USER }}
 
       - name: Push packages to NuGet.org
-        # Push all packages and symbol packages to NuGet.org
-        # --skip-duplicate ensures idempotency - already published versions are skipped
-        # The API key is obtained from the login step's output (valid for ~1 hour)
+        # Push primary packages only. The NuGet client discovers and publishes the
+        # matching .snupkg from the current package directory. Do not push .snupkg
+        # files explicitly: with --skip-duplicate, rebuilt symbols can be uploaded
+        # for an already-published .nupkg and fail NuGet symbol validation.
         if: ${{ github.event.inputs.dry_run != 'true' }}
         run: |
-          for package in ./artifacts/*.nupkg ./artifacts/*.snupkg; do
+          cd ./artifacts
+          for package in *.nupkg; do
             echo "Pushing: $package"
             dotnet nuget push "$package" \
               --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
