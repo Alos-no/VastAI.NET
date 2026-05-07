@@ -166,6 +166,39 @@ public sealed class VastApiClientTests
     Assert.Equal("https://console.vast.ai/api/v0/instances/12345/", handler.Request.RequestUri!.ToString());
   }
 
+  /// <summary>Destroy retries a transient Vast rate-limit response because cleanup must not leak paid instances.</summary>
+  [Fact]
+  public async Task DestroyInstanceAsync_WhenVastRateLimits_RetriesAndSucceeds()
+  {
+    var handler = new SequenceHandler(
+      new HttpResponseMessage((HttpStatusCode)429) { Content = new StringContent("Too Many Requests") },
+      new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"success":true}""") });
+    var client = CreateClient(handler);
+
+    await client.DestroyInstanceAsync("12345", TestContext.Current.CancellationToken);
+
+    Assert.Equal(2, handler.Requests.Count);
+    Assert.All(handler.Requests, request => Assert.Equal(HttpMethod.Delete, request.Method));
+  }
+
+  /// <summary>Create-instance does not retry 429 responses because retrying a rental request can create duplicate instances.</summary>
+  [Fact]
+  public async Task CreateInstanceAsync_WhenVastRateLimits_DoesNotRetry()
+  {
+    var handler = new SequenceHandler(
+      new HttpResponseMessage((HttpStatusCode)429) { Content = new StringContent("Too Many Requests") },
+      new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"new_contract":123}""") });
+    var client = CreateClient(handler);
+
+    await Assert.ThrowsAsync<Exceptions.VastAIOperationException>(() => client.CreateInstanceAsync(
+                                                                    "12345",
+                                                                    new VastCreateInstanceRequest { DiskGb = 20 },
+                                                                    TestContext.Current.CancellationToken));
+
+    Assert.Single(handler.Requests);
+    Assert.Equal(HttpMethod.Put, handler.Requests[0].Method);
+  }
+
   /// <summary>Calls fail before HTTP when no API key was configured, avoiding an invalid bearer header.</summary>
   [Fact]
   public async Task GetInstancesAsync_WithoutApiKey_ThrowsConfigurationErrorBeforeSendingRequest()
@@ -233,6 +266,22 @@ public sealed class VastApiClientTests
       {
         Content = new StringContent(responseJson)
       };
+    }
+  }
+
+  /// <summary>Returns a deterministic response sequence while recording every request sent by the client.</summary>
+  private sealed class SequenceHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+  {
+    private readonly Queue<HttpResponseMessage> _responses = new(responses);
+
+    public List<HttpRequestMessage> Requests { get; } = [];
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+      Requests.Add(request);
+      return Task.FromResult(_responses.Count == 0
+        ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"success":true}""") }
+        : _responses.Dequeue());
     }
   }
 }

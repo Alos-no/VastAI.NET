@@ -1,5 +1,6 @@
 namespace VastAI.NET;
 
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -16,6 +17,8 @@ public sealed class VastApiClient(
   IOptions<VastAIOptions>  options,
   ILogger<VastApiClient>?  logger = null) : IVastApiClient
 {
+  private const int MaxTransientRetryAttempts = 3;
+
   private static readonly JsonSerializerOptions JsonOptions = new()
   {
     PropertyNamingPolicy        = JsonNamingPolicy.SnakeCaseLower,
@@ -71,9 +74,10 @@ public sealed class VastApiClient(
   /// <inheritdoc />
   public async Task<IReadOnlyList<VastInstance>> GetInstancesAsync(CancellationToken cancellationToken = default)
   {
-    using var request  = CreateRequest(HttpMethod.Get, "api/v1/instances/");
-    using var response = await _httpClient.SendAsync(request, cancellationToken);
-    var       json     = await ReadSuccessfulJsonAsync(response, cancellationToken);
+    using var response = await SendWithTransientRetriesAsync(
+      () => CreateRequest(HttpMethod.Get, "api/v1/instances/"),
+      cancellationToken);
+    var json = await ReadSuccessfulJsonAsync(response, cancellationToken);
     return VastJsonReader.ReadInstances(json);
   }
 
@@ -83,9 +87,10 @@ public sealed class VastApiClient(
     if (string.IsNullOrWhiteSpace(instanceId))
       throw new ArgumentException("Instance id is required.", nameof(instanceId));
 
-    using var request  = CreateRequest(HttpMethod.Get, $"api/v0/instances/{Uri.EscapeDataString(instanceId)}/");
-    using var response = await _httpClient.SendAsync(request, cancellationToken);
-    var       json     = await ReadSuccessfulJsonAsync(response, cancellationToken);
+    using var response = await SendWithTransientRetriesAsync(
+      () => CreateRequest(HttpMethod.Get, $"api/v0/instances/{Uri.EscapeDataString(instanceId)}/"),
+      cancellationToken);
+    var json = await ReadSuccessfulJsonAsync(response, cancellationToken);
     return VastJsonReader.ReadInstance(json);
   }
 
@@ -110,8 +115,9 @@ public sealed class VastApiClient(
     if (string.IsNullOrWhiteSpace(instanceId))
       throw new ArgumentException("Instance id is required.", nameof(instanceId));
 
-    using var request  = CreateRequest(HttpMethod.Delete, $"api/v0/instances/{Uri.EscapeDataString(instanceId)}/");
-    using var response = await _httpClient.SendAsync(request, cancellationToken);
+    using var response = await SendWithTransientRetriesAsync(
+      () => CreateRequest(HttpMethod.Delete, $"api/v0/instances/{Uri.EscapeDataString(instanceId)}/"),
+      cancellationToken);
     await ReadSuccessfulJsonAsync(response, cancellationToken);
   }
 
@@ -127,6 +133,32 @@ public sealed class VastApiClient(
     if (body is not null)
       request.Content = JsonContent.Create(body, options: JsonOptions);
     return request;
+  }
+
+  /// <summary>
+  ///   Sends an idempotent request with a small retry loop for Vast throttling and transient server failures.
+  /// </summary>
+  /// <param name="createRequest">
+  ///   Factory used for each attempt. <see cref="HttpRequestMessage" /> instances cannot be sent more than once.
+  /// </param>
+  /// <param name="cancellationToken">Cancels the current HTTP attempt or retry delay.</param>
+  /// <returns>The first successful or non-retriable response. The caller owns disposal.</returns>
+  private async Task<HttpResponseMessage> SendWithTransientRetriesAsync(
+    Func<HttpRequestMessage> createRequest,
+    CancellationToken        cancellationToken)
+  {
+    for (var attempt = 0; attempt <= MaxTransientRetryAttempts; attempt++)
+    {
+      var response = await _httpClient.SendAsync(createRequest(), cancellationToken);
+      if (!ShouldRetry(response) || attempt == MaxTransientRetryAttempts)
+        return response;
+
+      var delay = GetRetryDelay(response, attempt);
+      response.Dispose();
+      await Task.Delay(delay, cancellationToken);
+    }
+
+    throw new InvalidOperationException("Unreachable retry state.");
   }
 
   /// <summary>Converts the public search model into Vast's flat JSON body shape.</summary>
@@ -152,6 +184,30 @@ public sealed class VastApiClient(
     var direction    = trimmedOrder.EndsWith("-", StringComparison.Ordinal) ? "desc" : "asc";
     var fieldName    = trimmedOrder.TrimEnd('-', '+');
     return [[fieldName, direction]];
+  }
+
+  /// <summary>Returns true for Vast responses that are usually temporary and safe to retry for idempotent calls.</summary>
+  private static bool ShouldRetry(HttpResponseMessage response) =>
+    response.StatusCode == HttpStatusCode.TooManyRequests ||
+    response.StatusCode == HttpStatusCode.RequestTimeout ||
+    (int)response.StatusCode >= 500;
+
+  /// <summary>Uses Vast's retry hint when present, otherwise waits long enough for short per-endpoint throttles to clear.</summary>
+  private static TimeSpan GetRetryDelay(HttpResponseMessage response, int attempt)
+  {
+    if (response.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+      return delta;
+
+    if (response.Headers.RetryAfter?.Date is { } date)
+    {
+      var delay = date - DateTimeOffset.UtcNow;
+      if (delay > TimeSpan.Zero)
+        return delay;
+    }
+
+    return response.StatusCode == HttpStatusCode.TooManyRequests
+      ? TimeSpan.FromSeconds(4 + attempt)
+      : TimeSpan.FromSeconds(Math.Pow(2, attempt));
   }
 
   /// <summary>Converts the public create-instance model into Vast's REST body shape.</summary>

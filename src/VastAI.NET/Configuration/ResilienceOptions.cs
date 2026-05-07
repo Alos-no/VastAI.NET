@@ -50,8 +50,8 @@ public sealed class ResilienceOptions
   /// </summary>
   /// <remarks>
   ///   <para>
-  ///     Only idempotent HTTP methods (GET, HEAD, OPTIONS, TRACE, PUT, DELETE) are retried.
-  ///     POST and PATCH requests are NOT retried to prevent duplicate operations.
+  ///     Only safe read/cleanup HTTP methods (GET, HEAD, OPTIONS, TRACE, DELETE) are retried.
+  ///     PUT is not retried because Vast uses it for create-instance operations.
   ///   </para>
   /// </remarks>
   public int MaxRetries { get; set; } = 3;

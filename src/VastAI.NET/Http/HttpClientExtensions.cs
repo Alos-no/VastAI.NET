@@ -34,7 +34,7 @@ public static class HttpClientExtensions
   internal const string HttpClientNamePrefix = "VastAIClient";
 
   /// <summary>
-  ///   HTTP methods that are safe to retry (idempotent methods).
+  ///   HTTP methods that are safe to retry for Vast operations exposed by this client.
   /// </summary>
   private static readonly HashSet<HttpMethod> IdempotentMethods =
   [
@@ -42,7 +42,6 @@ public static class HttpClientExtensions
     HttpMethod.Head,
     HttpMethod.Options,
     HttpMethod.Trace,
-    HttpMethod.Put,
     HttpMethod.Delete
   ];
 
@@ -158,7 +157,7 @@ public static class HttpClientExtensions
     });
 
     // 3. Retry strategy with exponential backoff.
-    // Only idempotent methods (GET, PUT, DELETE, etc.) are retried.
+    // Vast uses PUT for create-instance, so PUT is intentionally excluded from automatic retries.
     if (options.MaxRetries > 0)
     {
       builder.AddRetry(new HttpRetryStrategyOptions
@@ -199,11 +198,11 @@ public static class HttpClientExtensions
     RetryPredicateArguments<HttpResponseMessage> args,
     ResilienceOptions options)
   {
-    // Don't retry non-idempotent methods (POST, PATCH) to prevent duplicate operations.
+    // Don't retry non-idempotent methods or Vast's create-instance PUT to prevent duplicate paid operations.
     // The request message is available via the response's RequestMessage property.
     var method = args.Outcome.Result?.RequestMessage?.Method;
 
-    if (method is not null && !IdempotentMethods.Contains(method))
+    if (method is not null && !IsRetryableMethod(method))
     {
       return new ValueTask<bool>(false);
     }
@@ -236,6 +235,10 @@ public static class HttpClientExtensions
 
     return new ValueTask<bool>(false);
   }
+
+
+  /// <summary>Returns true when a Vast request method can be retried without creating duplicate paid resources.</summary>
+  internal static bool IsRetryableMethod(HttpMethod method) => IdempotentMethods.Contains(method);
 
 
   /// <summary>
