@@ -106,7 +106,8 @@ public sealed class VastApiClient(
     using var httpRequest = CreateRequest(HttpMethod.Put, $"api/v0/asks/{Uri.EscapeDataString(offerId)}/", CreateInstanceBody(request));
     using var response    = await _httpClient.SendAsync(httpRequest, cancellationToken);
     var       json        = await ReadSuccessfulJsonAsync(response, cancellationToken);
-    return new VastCreateInstanceResult(VastJsonReader.ReadNewContract(json));
+    var       instanceId  = ReadCreatedInstanceId(json);
+    return new VastCreateInstanceResult(instanceId);
   }
 
   /// <inheritdoc />
@@ -229,6 +230,27 @@ public sealed class VastApiClient(
       body["image"] = request.Image;
 
     return body;
+  }
+
+  /// <summary>Reads Vast's create-instance id and converts malformed success bodies into operation errors.</summary>
+  private static string ReadCreatedInstanceId(string json)
+  {
+    try
+    {
+      var instanceId = VastJsonReader.ReadNewContract(json);
+      if (!string.IsNullOrWhiteSpace(instanceId))
+        return instanceId;
+    }
+    catch (JsonException exception)
+    {
+      throw new VastAIOperationException(
+        "Vast create-instance response did not include a new contract id. Response body was not valid JSON.",
+        exception);
+    }
+
+    var preview = string.IsNullOrWhiteSpace(json) ? "<empty>" : json.Length <= 300 ? json : json[..300] + "...";
+    throw new VastAIOperationException(
+      $"Vast create-instance response did not include a new contract id. Response body: {preview}");
   }
 
   /// <summary>Reads response JSON or throws a Vast-specific exception with the server payload.</summary>

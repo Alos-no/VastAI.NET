@@ -9,10 +9,10 @@ internal static class VastJsonReader
 {
   /// <summary>Reads marketplace offers from Vast's direct array or collection envelope responses.</summary>
   public static IReadOnlyList<VastOffer> ReadOffers(string json) =>
-    VastJson.DeserializeCollection<VastOfferDto, VastOfferEnvelope>(json, envelope => envelope.Items)
-            .Select(offer => offer.ToModel())
-            .Where(offer => !string.IsNullOrWhiteSpace(offer.Id))
-            .ToList();
+    ReadOfferElements(json)
+      .Select(ReadOfferElement)
+      .Where(offer => !string.IsNullOrWhiteSpace(offer.Id))
+      .ToList();
 
   /// <summary>Reads account instances from Vast's direct array or collection envelope responses.</summary>
   public static IReadOnlyList<VastInstance> ReadInstances(string json) =>
@@ -32,14 +32,24 @@ internal static class VastJsonReader
     VastJson.Deserialize<VastCreateInstanceResponse>(json)?.NewInstanceId ?? "";
 
   /// <summary>Extracts instance objects from Vast's direct array and known collection wrappers.</summary>
+  private static IReadOnlyList<JsonElement> ReadOfferElements(string json) =>
+    ReadObjectElements(json, "offers", "results", "instances");
+
+  /// <summary>Extracts instance objects from Vast's direct array and known collection wrappers.</summary>
   private static IReadOnlyList<JsonElement> ReadInstanceElements(string json)
+  {
+    return ReadObjectElements(json, "instances", "results", "items", "data");
+  }
+
+  /// <summary>Extracts JSON objects from a direct array, a known wrapper, or a direct object.</summary>
+  private static IReadOnlyList<JsonElement> ReadObjectElements(string json, params string[] wrapperNames)
   {
     using var document = JsonDocument.Parse(json);
     var       root     = document.RootElement;
     if (root.ValueKind == JsonValueKind.Array)
       return root.EnumerateArray().Select(element => element.Clone()).ToList();
 
-    foreach (var name in new[] { "instances", "results", "items", "data" })
+    foreach (var name in wrapperNames)
       if (root.TryGetProperty(name, out var child))
       {
         if (child.ValueKind == JsonValueKind.Array)
@@ -50,6 +60,14 @@ internal static class VastJsonReader
       }
 
     return root.ValueKind == JsonValueKind.Object ? [root.Clone()] : [];
+  }
+
+  /// <summary>Maps one raw Vast offer object into the public model while preserving its complete JSON object.</summary>
+  private static VastOffer ReadOfferElement(JsonElement element)
+  {
+    var rawJson = element.GetRawText();
+    return VastJson.Deserialize<VastOfferDto>(rawJson)?.ToModel(VastRawJson.FromJson(rawJson)) ??
+           new VastOffer("", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, "");
   }
 
   /// <summary>Maps one raw Vast instance object into the public model while preserving its complete JSON object.</summary>

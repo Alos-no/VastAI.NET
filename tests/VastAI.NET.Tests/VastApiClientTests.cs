@@ -20,17 +20,57 @@ public sealed class VastApiClientTests
                                        "offers": [
                                          {
                                            "id": 123,
+                                           "ask_contract_id": 456,
+                                           "bundle_id": 789,
+                                           "bw_nvlink": 0,
                                            "gpu_name": "RTX 4090",
+                                           "num_gpus": 1,
                                            "dph_total": 0.25,
+                                           "dph_base": 0.20,
                                            "cuda_max_good": 12.8,
                                            "reliability": 0.999,
+                                           "expected_reliability": 0.997,
                                            "disk_space": 500,
+                                           "gpu_ram": 24576,
+                                           "gpu_total_ram": 24576,
+                                           "gpu_mem_bw": 1008.2,
+                                           "gpu_lanes": 16,
+                                           "gpu_max_power": 450,
+                                           "cpu_name": "AMD EPYC 9654",
+                                           "cpu_arch": "amd64",
+                                           "cpu_ram": 131072,
+                                           "cpu_cores": 32,
+                                           "cpu_cores_effective": 16,
+                                           "cpu_ghz": 2.4,
+                                           "disk_name": "NVMe SSD",
+                                           "disk_bw": 6400,
+                                           "direct_port_count": 128,
                                            "inet_up": 900,
                                            "inet_down": 800,
+                                           "inet_up_cost": 0.00049,
+                                           "inet_down_cost": 0.00024,
                                            "internet_up_cost_per_tb": 0.5,
                                            "internet_down_cost_per_tb": 0.25,
                                            "compute_cap": 890,
-                                           "geolocation": "US"
+                                           "geolocation": "US",
+                                           "driver_version": "570.86.15",
+                                           "public_ipaddr": "203.0.113.42",
+                                           "dlperf": 198.7,
+                                           "dlperf_per_dphtotal": 794.8,
+                                           "total_flops": 82.6,
+                                           "duration": 86400,
+                                           "machine_id": 1234,
+                                           "host_id": 5678,
+                                           "verification": "verified",
+                                           "rentable": true,
+                                           "rented": false,
+                                           "search": {
+                                             "gpuCostPerHour": 0.20,
+                                             "diskHour": 0.01,
+                                             "totalHour": 0.25,
+                                             "discountTotalHour": 0.02,
+                                             "discountedTotalPerHour": 0.23
+                                           }
                                          }
                                        ]
                                      }
@@ -51,7 +91,43 @@ public sealed class VastApiClientTests
     Assert.Contains("\"order\":[[\"dph_total\",\"asc\"]]", handler.Body);
     Assert.Single(offers);
     Assert.Equal("123", offers[0].Id);
+    Assert.Equal("456", offers[0].AskContractId);
+    Assert.Equal("789", offers[0].BundleId);
+    Assert.Equal(1, offers[0].NumGpus);
+    Assert.Equal(24, offers[0].GpuRamGb);
+    Assert.Equal(24, offers[0].GpuTotalRamGb);
+    Assert.Equal(1008.2, offers[0].GpuMemBwGbPerSecond);
+    Assert.Equal(16, offers[0].GpuLanes);
+    Assert.Equal(450, offers[0].GpuMaxPowerWatts);
+    Assert.Equal("AMD EPYC 9654", offers[0].CpuName);
+    Assert.Equal("amd64", offers[0].CpuArch);
+    Assert.Equal(128, offers[0].CpuRamGb);
+    Assert.Equal(32, offers[0].CpuCores);
+    Assert.Equal(16, offers[0].CpuCoresEffective);
+    Assert.Equal(2.4, offers[0].CpuGhz);
+    Assert.Equal("NVMe SSD", offers[0].DiskName);
+    Assert.Equal(6400, offers[0].DiskBwMbPerSecond);
+    Assert.Equal(128, offers[0].DirectPortCount);
+    Assert.Equal("570.86.15", offers[0].DriverVersion);
+    Assert.Equal("203.0.113.42", offers[0].PublicIpAddress);
+    Assert.Equal(198.7, offers[0].DlPerf);
+    Assert.Equal(794.8, offers[0].DlPerfPerDollarHour);
+    Assert.Equal(82.6, offers[0].TotalFlops);
+    Assert.Equal(86400, offers[0].DurationSeconds);
+    Assert.Equal("1234", offers[0].MachineId);
+    Assert.Equal("5678", offers[0].HostId);
+    Assert.True(offers[0].Rentable);
+    Assert.False(offers[0].Rented);
+    Assert.Equal("verified", offers[0].Verification);
+    Assert.Equal(0.20, offers[0].SearchPricing?.GpuCostPerHour);
+    Assert.Equal(0.25, offers[0].SearchPricing?.TotalHour);
     Assert.Equal(0.5, offers[0].InternetUpCostPerTb);
+    Assert.True(offers[0].Raw.TryGetProperty("cpu_name", out var cpuName));
+    Assert.Equal("AMD EPYC 9654", cpuName?.GetValue<string>());
+    Assert.True(offers[0].Raw.TryGetProperty("gpu_ram", out var gpuRam));
+    Assert.Equal(24576, gpuRam?.GetValue<double>());
+    Assert.True(offers[0].Raw.TryGetProperty("disk_name", out var storageName));
+    Assert.Equal("NVMe SSD", storageName?.GetValue<string>());
   }
 
   /// <summary>Search converts a descending compact sort expression to the REST API order-list shape.</summary>
@@ -93,6 +169,22 @@ public sealed class VastApiClientTests
     Assert.Contains("\"env\":{\"-p 8088:8088\":\"1\"}", handler.Body);
     Assert.Contains("\"image\":\"vastai/base-image:@vastai-automatic-tag\"", handler.Body);
     Assert.Equal("987654", result.InstanceId);
+  }
+
+  /// <summary>Create instance must fail with a readable operation error when Vast returns success without a contract id.</summary>
+  [Fact]
+  public async Task CreateInstanceAsync_WhenSuccessResponseHasNoContractId_ThrowsReadableOperationError()
+  {
+    var handler = new CaptureHandler("");
+    var client  = CreateClient(handler);
+
+    var exception = await Assert.ThrowsAsync<Exceptions.VastAIOperationException>(() =>
+      client.CreateInstanceAsync(
+        "12345",
+        new VastCreateInstanceRequest { DiskGb = 85, RuntimeType = "ssh" },
+        TestContext.Current.CancellationToken));
+
+    Assert.Contains("create-instance response did not include a new contract id", exception.Message);
   }
 
   /// <summary>Show instances parses wrapped instance arrays and preserves SSH metadata when Vast returns it.</summary>
